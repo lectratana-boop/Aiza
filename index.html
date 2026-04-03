@@ -436,14 +436,25 @@ function normalizeDB(raw){
     req: toArr(raw.req)
   };
 }
-
-// Synchronous read from local cache
 function gdb(){ return JSON.parse(JSON.stringify(DB)); }
 
-// Write to local cache + Firebase
 function sdb(d){
   DB = d;
   fbRef.set({u:d.u||[], i:d.i||[], req:d.req||[]});
+}
+
+/* REALTIME SYNC */
+function startRealtimeSync(){
+  fbRef.on('value', function(snap){
+    DB = normalizeDB(snap.val());
+    dbReady = true;
+    console.log("DB synced");
+  });
+
+  fbDB.ref('.info/connected').on('value', function(snap){
+    isOnline = snap.val() === true;
+    console.log("Connexion:", isOnline);
+  });
 }
 
 // REAL-TIME LISTENER — this is what makes cross-device work
