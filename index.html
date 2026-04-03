@@ -1311,6 +1311,28 @@ document.addEventListener('DOMContentLoaded',function(){
     },500);
   },1400);
 });
+<script>
+window.onload = function(){
+
+  initDB(function(){
+    startRealtimeSync();
+
+    // Auto login
+    var uid = localStorage.getItem('aiza_uid');
+    if(uid){
+      var u = DB.u.find(x=>x.id===uid);
+      if(u){
+        CU = u;
+        enter();
+        return;
+      }
+    }
+
+    // sinon login page
+    document.getElementById('pgL').classList.add('on');
+  });
+
+};
 </script>
 </body>
 </html>
