@@ -277,10 +277,10 @@ function restoreBackup(backupId) {
 }
 
 function initDemo() {
-  // Only two accounts: Admin and User (no credentials displayed in UI)
+  // ONLY TWO ACCOUNTS - No credentials displayed in UI
   db.u = [
-    { id: 'admin1', name: 'Administrateur', email: 'admin@aiza.com', pw: 'Admin@2024', role: 'admin', lastLogin: new Date().toISOString() },
-    { id: 'user1', name: 'Utilisateur', email: 'user2026@gmail.com', pw: 'user2026', role: 'user', lastLogin: new Date().toISOString() }
+    { id: 'admin1', name: 'Andry Ratolojahary', email: 'lectratana@gmail.com', pw: 'Aiza@dmin2024', role: 'admin', lastLogin: new Date().toISOString() },
+    { id: 'user1', name: 'Utilisateur Standard', email: 'user2026@gmail.com', pw: 'user2026', role: 'user', lastLogin: new Date().toISOString() }
   ];
   db.customers = ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
   db.i = [];
@@ -296,11 +296,7 @@ let tempPhotos = [null,null,null,null,null];
 // ==================== AUTH ====================
 function swT(t){ document.getElementById('tL').classList.toggle('on',t==='l'); document.getElementById('tR').classList.toggle('on',t==='r'); document.getElementById('fL').style.display=t==='l'?'block':'none'; document.getElementById('fR').style.display=t==='r'?'block':'none'; }
 function loginSubmit(e){ e.preventDefault(); const em=document.getElementById('le').value.trim(), pw=document.getElementById('lp').value; const u=db.u.find(x=>x.email===em && x.pw===pw); if(!u){ toast('Email ou mot de passe incorrect','no'); return false; } currentUser=u; u.lastLogin=new Date().toISOString(); saveDB(); localStorage.setItem('aiza_user',JSON.stringify({id:u.id})); addHistory('LOGIN', `${u.name} s'est connecté`); toast('Connexion réussie','ok'); showApp(); return false; }
-function regSubmit(e){ 
-  e.preventDefault(); 
-  toast('Inscription désactivée - Contactez l\'administrateur','no'); 
-  return false; 
-}
+function regSubmit(e){ e.preventDefault(); toast('Inscription désactivée - Contactez l\'administrateur','no'); return false; }
 function logout(){ addHistory('LOGOUT', `${currentUser?.name} s'est déconnecté`); currentUser=null; localStorage.removeItem('aiza_user'); document.getElementById('hdr').classList.remove('v'); document.getElementById('bnav').classList.remove('v'); document.getElementById('pgL').classList.add('on'); document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on')); }
 function showApp(){ document.getElementById('pgL').classList.remove('on'); document.getElementById('hdr').classList.add('v'); document.getElementById('bnav').classList.add('v'); updateUI(); go('home'); if(currentUser?.role==='admin'){ document.getElementById('adminPanelLink').style.display='block'; } else { document.getElementById('adminPanelLink').style.display='none'; } }
 function updateUI(){ if(currentUser){ document.getElementById('hAv').textContent=currentUser.name.charAt(0).toUpperCase(); document.getElementById('prA').textContent=currentUser.name.charAt(0).toUpperCase(); document.getElementById('prN').textContent=currentUser.name; document.getElementById('prE').textContent=currentUser.email; document.getElementById('userBadge').innerHTML=currentUser.role==='admin'?'<span class="admin-badge">👑 ADMIN</span>':'<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:20px;font-size:11px">👤 USER</span>'; } }
