@@ -25,89 +25,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
 .btn-no{background:var(--no);color:#fff}
 .btn-sm{padding:8px 14px;font-size:13px;width:auto}
 .btn-ghost{background:var(--bg);color:var(--txt);border:2px solid var(--bd)}
-/* ===== SPLASH VIDEO 20s ===== */
-.splash{
-  position:fixed;
-  inset:0;
-  z-index:9999;
-  background:#000;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  max-width:480px;
-  margin:0 auto;
-  overflow:hidden;
-  transition:opacity .7s ease;
-}
-.splash.off{
-  opacity:0;
-  pointer-events:none;
-}
-.splash-video{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  background:#000;
-}
-.splash-overlay{
-  position:absolute;
-  inset:0;
-  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,.25), rgba(0,0,0,.45));
-}
-.splash-content{
-  position:relative;
-  z-index:2;
-  width:100%;
-  padding:24px 18px 28px;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:flex-end;
-  min-height:100%;
-}
-.splash-logo{
-  margin-top:auto;
-  font-size:56px;
-  font-weight:900;
-  letter-spacing:4px;
-  color:#fff;
-  text-shadow:0 4px 20px rgba(0,0,0,.35);
-  margin-bottom:18px;
-}
-.splash-status{
-  background:rgba(255,255,255,.92);
-  color:#111;
-  font-size:14px;
-  font-weight:800;
-  padding:8px 16px;
-  border-radius:999px;
-  margin-bottom:14px;
-  box-shadow:0 6px 18px rgba(0,0,0,.18);
-}
-.splash-progress-wrap{
-  width:100%;
-  height:8px;
-  background:rgba(255,255,255,.28);
-  border-radius:999px;
-  overflow:hidden;
-  backdrop-filter:blur(4px);
-}
-.splash-progress-bar{
-  width:0%;
-  height:100%;
-  border-radius:999px;
-  background:linear-gradient(90deg,#ffffff,#b8d8ff);
-  transition:width .25s linear;
-}
-.splash-time{
-  margin-top:8px;
-  color:#fff;
-  font-size:13px;
-  font-weight:700;
-  text-shadow:0 2px 10px rgba(0,0,0,.35);
-}
+.splash{position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,var(--c1),#4834D4);display:flex;flex-direction:column;align-items:center;justify-content:center;max-width:480px;margin:0 auto;transition:opacity .5s}
+.splash.off{opacity:0;pointer-events:none}
+.splash .si{font-size:64px;animation:bob 1s ease-in-out infinite}
+.splash .sl{font-size:52px;font-weight:900;color:#fff}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:50px;font-size:14px;font-weight:600;z-index:9998;display:none;background:#333;color:#fff;max-width:88%;text-align:center;box-shadow:var(--sh)}
 .hdr{position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;height:56px;background:#fff;display:none;align-items:center;justify-content:space-between;padding:0 16px;z-index:800;box-shadow:0 1px 6px rgba(0,0,0,.05)}
 .hdr.v{display:flex}
@@ -189,25 +111,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
 </head>
 <body>
 
-<!-- SPLASH VIDEO 20s -->
 <div class="splash" id="splash">
-  <video id="splashVideo" class="splash-video" autoplay muted playsinline>
-    <source src="assets/videos/aiza-splash.mp4" type="video/mp4">
-    Votre navigateur ne supporte pas la vidéo.
-  </video>
-
-  <div class="splash-overlay"></div>
-
-  <div class="splash-content">
-    <div class="splash-logo">AIZA</div>
-    <div class="splash-status" id="splashStatus">Initialisation...</div>
-
-    <div class="splash-progress-wrap">
-      <div class="splash-progress-bar" id="splashProgressBar"></div>
-    </div>
-
-    <div class="splash-time" id="splashTime">0 / 20 s</div>
-  </div>
+  <div class="si">🧵</div>
+  <div class="sl">Aiza</div>
 </div>
 <div id="toast"></div>
 
@@ -896,88 +802,7 @@ function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-// ==================== SPLASH VIDEO 20s ====================
-let splashInterval = null;
 
-function startSplashSequence() {
-  const splash = document.getElementById('splash');
-  const video = document.getElementById('splashVideo');
-  const progressBar = document.getElementById('splashProgressBar');
-  const splashTime = document.getElementById('splashTime');
-  const splashStatus = document.getElementById('splashStatus');
-
-  const totalDuration = 20; // 20 secondes
-  let current = 0;
-
-  const statusSteps = [
-    { t: 0,  text: 'Initialisation...' },
-    { t: 3,  text: 'Chargement de l’inventaire...' },
-    { t: 8,  text: 'Recherche de rouleau...' },
-    { t: 14, text: 'Préparation de l’interface...' },
-    { t: 18, text: 'Initialisation terminée' }
-  ];
-
-  // Forcer la vidéo à démarrer
-  if (video) {
-    video.currentTime = 0;
-    video.play().catch(() => {
-      console.log("Lecture auto bloquée, on continue le splash quand même.");
-    });
-  }
-
-  // Reset affichage
-  progressBar.style.width = '0%';
-  splashTime.textContent = `0 / ${totalDuration} s`;
-  splashStatus.textContent = 'Initialisation...';
-
-  // Stop si jamais déjà actif
-  if (splashInterval) clearInterval(splashInterval);
-
-  splashInterval = setInterval(() => {
-    current++;
-
-    const percent = Math.min((current / totalDuration) * 100, 100);
-    progressBar.style.width = percent + '%';
-    splashTime.textContent = `${current} / ${totalDuration} s`;
-
-    // Mise à jour du texte
-    for (let i = statusSteps.length - 1; i >= 0; i--) {
-      if (current >= statusSteps[i].t) {
-        splashStatus.textContent = statusSteps[i].text;
-        break;
-      }
-    }
-
-    if (current >= totalDuration) {
-      clearInterval(splashInterval);
-      splashInterval = null;
-      finishSplashAndShowLoginOrApp();
-    }
-  }, 1000);
-}
-
-function finishSplashAndShowLoginOrApp() {
-  document.getElementById('splash').classList.add('off');
-
-  const saved = localStorage.getItem('aiza_user');
-
-  if (saved) {
-    const userData = JSON.parse(saved);
-
-    // Laisse Firebase charger les users
-    setTimeout(() => {
-      const u = db.u.find(x => x.id === userData.id);
-      if (u) {
-        currentUser = u;
-        showApp();
-      } else {
-        document.getElementById('pgL').classList.add('on');
-      }
-    }, 800);
-  } else {
-    document.getElementById('pgL').classList.add('on');
-  }
-}
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', function() {
   // Initialize Firebase listeners
@@ -985,12 +810,32 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Initialize demo data if needed
   initDemoData();
-
+  
+  // Hide splash after delay
+  setTimeout(() => {
+    document.getElementById('splash').classList.add('off');
+    
+    // Check for saved session
+    const saved = localStorage.getItem('aiza_user');
+    if (saved) {
+      const userData = JSON.parse(saved);
+      // Wait for Firebase to load users
+      setTimeout(() => {
+        const u = db.u.find(x => x.id === userData.id);
+        if (u) {
+          currentUser = u;
+          showApp();
+        } else {
+          document.getElementById('pgL').classList.add('on');
+        }
+      }, 1500);
+    } else {
+      document.getElementById('pgL').classList.add('on');
+    }
+  }, 1800);
+  
   // Initial render
   renderPhotoGrid();
-
-  // Start 20s splash video sequence
-  startSplashSequence();
 });
 </script>
 </body>
