@@ -148,42 +148,22 @@
   }
 
   function doLogin() {
-    const em = document.getElementById('liEm').value.trim();
+    const em = document.getElementById('liEm').value;
     const ps = document.getElementById('liPs').value;
+    auth.signInWithEmailAndPassword(em, ps).catch(() => toast("Erreur Login","no"));
+  }
 
-    if(!em || !ps) return toast("Veuillez remplir tous les champs", "no");
-
-    auth.signInWithEmailAndPassword(em, ps)
-    .then((userCredential) => {
-        // Connexion réussie
-        toast("Connexion réussie", "ok");
-    })
-    .catch((error) => {
-        console.error(error);
-        toast("Erreur : Identifiants incorrects", "no");
-    });
-}
-
-function setupApp(user) {
+  function setupApp(user) {
     showPage('pgM');
-    
-    // VERIFICATION SI ADMIN
-    // On vérifie si l'email correspond à votre compte admin
-    if(user.email === 'lectratana@gmail.com') {
-        document.getElementById('btnA').style.display = 'block';
-        document.getElementById('admD').innerText = "Connecté en tant que : Administrateur (" + user.email + ")";
-    } else {
-        document.getElementById('btnA').style.display = 'none';
-        document.getElementById('admD').innerText = "Connecté en tant que : Utilisateur";
+    if(user.email !== 'user2026@gmail.com') {
+      document.getElementById('btnA').style.display = 'block';
     }
-
-    // Synchronisation des données Firebase
     db.ref('aiza/items').on('value', s => {
-        const val = s.val();
-        fullList = val ? Object.values(val) : [];
-        render(fullList);
+      const val = s.val();
+      fullList = val ? Object.values(val) : [];
+      render(fullList);
     });
-}
+  }
 
   // LISTES
   let custs = ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
