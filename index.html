@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 <title>Aiza - Gestion textile</title>
+
+<!-- FIREBASE SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{--c1:#6C63FF;--c2:#5A52D5;--c3:#FF6584;--ok:#00C896;--warn:#FFB946;--no:#FF4757;--bg:#F0F2F5;--txt:#2D3436;--t2:#636E72;--t3:#B2BEC3;--bd:#DFE6E9;--sh:0 2px 12px rgba(0,0,0,.07);--r:16px;--rs:12px}
@@ -100,6 +105,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
 .backup-btn{background:var(--ok);color:#fff;border:none;border-radius:8px;padding:10px;margin-top:10px;width:100%;font-weight:600}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .admin-badge{background:linear-gradient(135deg,#FFD700,#FFA500);color:#333;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;margin-left:6px}
+.df{padding:8px 0;border-bottom:1px solid var(--bd)}
+.df strong{color:var(--t2);font-size:12px;display:block}
 </style>
 </head>
 <body>
@@ -110,7 +117,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
 </div>
 <div id="toast"></div>
 
-<!-- LOGIN PAGE - No credentials displayed -->
+<!-- LOGIN PAGE -->
 <div class="pg-l" id="pgL">
   <div class="lg-h"><div style="font-size:42px">📦</div><h1>Aiza</h1><p>Gestion textile & matières</p></div>
   <div class="lg-b">
@@ -176,7 +183,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
   <div id="adminPanelLink" style="margin-top:12px;display:none"><button class="btn btn-ghost" onclick="go('admin')">⚙️ Administration</button></div>
 </div>
 
-<!-- PAGE ADMIN (Admin only) -->
+<!-- PAGE ADMIN -->
 <div class="pg" id="pgAdmin">
   <h2 style="font-size:20px;font-weight:800;margin-bottom:14px">⚙️ Administration</h2>
   <div class="asg"><div class="asc"><div class="an" id="statUsers">0</div><div class="al">Utilisateurs</div></div><div class="asc"><div class="an" id="statItems">0</div><div class="al">Objets</div></div></div>
@@ -215,122 +222,621 @@ input:focus,select:focus,textarea:focus{border-color:var(--c1);box-shadow:0 0 0 
 <div class="mbg" id="mD" onclick="if(event.target===this)closeM('mD')"><div class="mdl"><div class="mbar"></div><div class="mhd"><h2 id="dTi">Détail</h2><button class="mx" onclick="closeM('mD')">✕</button></div><div class="mbd" id="dBd"></div></div></div>
 
 <script>
-// ==================== DATABASE ====================
+// ==================== FIREBASE CONFIG ====================
+const firebaseConfig = {
+  apiKey: "AIzaSyDemo-Key",
+  authDomain: "aiza-38b31.firebaseapp.com",
+  databaseURL: "https://aiza-38b31-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "aiza-38b31",
+  storageBucket: "aiza-38b31.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:demo"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const fbRef = firebase.database().ref();
+
+// ==================== DATABASE STRUCTURE ====================
 let db = { u: [], i: [], customers: [], history: [], backups: [] };
+let currentUser = null;
+let currentEditId = null;
+let tempPhotos = [null, null, null, null, null];
 
-function loadDB() {
-  const data = localStorage.getItem('aiza_db');
-  if(data) { 
-    db = JSON.parse(data); 
-    if(!db.customers) db.customers = ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
-    if(!db.history) db.history = [];
-    if(!db.backups) db.backups = [];
-    if(!db.i) db.i = [];
-    if(!db.u) db.u = [];
-    saveDB(); 
-  } else { 
-    initDemo(); 
-  }
+// ==================== FIREBASE REAL-TIME LISTENERS ====================
+function initFirebaseListeners() {
+  // Listen for items changes (REAL-TIME)
+  fbRef.child('items').on('value', snapshot => {
+    db.i = [];
+    snapshot.forEach(child => {
+      db.i.push({ id: child.key, ...child.val() });
+    });
+    if (currentUser) {
+      renderHome();
+      renderItems();
+      doSearch();
+      if (currentUser.role === 'admin') renderAdmin();
+    }
+  });
+
+  // Listen for users changes
+  fbRef.child('users').on('value', snapshot => {
+    db.u = [];
+    snapshot.forEach(child => {
+      db.u.push({ id: child.key, ...child.val() });
+    });
+    if (currentUser?.role === 'admin') renderAdmin();
+  });
+
+  // Listen for customers changes
+  fbRef.child('customers').on('value', snapshot => {
+    db.customers = snapshot.val() || ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
+    refreshCustomers();
+  });
+
+  // Listen for history changes
+  fbRef.child('history').on('value', snapshot => {
+    db.history = [];
+    snapshot.forEach(child => {
+      db.history.push({ id: child.key, ...child.val() });
+    });
+    db.history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (currentUser?.role === 'admin') renderAdmin();
+  });
+
+  // Listen for backups changes
+  fbRef.child('backups').on('value', snapshot => {
+    db.backups = [];
+    snapshot.forEach(child => {
+      db.backups.push({ id: child.key, ...child.val() });
+    });
+    db.backups.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (currentUser?.role === 'admin') renderAdmin();
+  });
 }
-function saveDB() { localStorage.setItem('aiza_db', JSON.stringify(db)); }
 
+// ==================== INIT DATA (First time setup) ====================
+function initDemoData() {
+  fbRef.child('users').once('value', snapshot => {
+    if (!snapshot.exists()) {
+      // Create default users
+      fbRef.child('users').child('admin1').set({
+        name: 'Andry Ratolojahary',
+        email: 'lectratana@gmail.com',
+        pw: 'Aiza@dmin2024',
+        role: 'admin',
+        lastLogin: new Date().toISOString()
+      });
+      fbRef.child('users').child('user1').set({
+        name: 'Utilisateur Standard',
+        email: 'user2026@gmail.com',
+        pw: 'user2026',
+        role: 'user',
+        lastLogin: new Date().toISOString()
+      });
+      // Default customers
+      fbRef.child('customers').set(["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"]);
+    }
+  });
+}
+
+// ==================== HISTORY ====================
 function addHistory(action, details) {
-  db.history.unshift({
-    id: 'h'+Date.now(),
+  const historyItem = {
     userId: currentUser?.id,
     userName: currentUser?.name,
     action: action,
     details: details,
     timestamp: new Date().toISOString()
-  });
-  if(db.history.length > 200) db.history = db.history.slice(0, 200);
-  saveDB();
+  };
+  fbRef.child('history').push(historyItem);
 }
 
+// ==================== BACKUP ====================
 function backupDB() {
   const backup = {
-    id: 'bkp_' + Date.now(),
     timestamp: new Date().toISOString(),
     data: JSON.parse(JSON.stringify(db))
   };
-  db.backups.unshift(backup);
-  if(db.backups.length > 10) db.backups = db.backups.slice(0, 10);
-  saveDB();
-  toast('Sauvegarde créée !','ok');
-  addHistory('BACKUP_CREATED', `Sauvegarde ${backup.id}`);
+  fbRef.child('backups').push(backup);
+  toast('Sauvegarde créée !', 'ok');
+  addHistory('BACKUP_CREATED', `Sauvegarde créée`);
 }
 
 function restoreBackup(backupId) {
   const backup = db.backups.find(b => b.id === backupId);
-  if(!backup) { toast('Backup introuvable','no'); return; }
-  if(confirm('Restaurer cette sauvegarde ? Les données actuelles seront perdues.')) {
-    db = backup.data;
-    if(!db.customers) db.customers = ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
-    if(!db.history) db.history = [];
-    if(!db.backups) db.backups = [];
-    saveDB();
-    addHistory('RESTORE', `Restauration depuis ${backup.id}`);
-    toast('Base restaurée !','ok');
-    if(currentUser) { renderHome(); renderItems(); if(currentUser.role==='admin') renderAdmin(); }
-    else location.reload();
+  if (!backup) { toast('Backup introuvable', 'no'); return; }
+  if (confirm('Restaurer cette sauvegarde ? Les données actuelles seront perdues.')) {
+    if (backup.data.i) {
+      fbRef.child('items').set({});
+      backup.data.i.forEach(item => {
+        fbRef.child('items').child(item.id).set(item);
+      });
+    }
+    if (backup.data.customers) {
+      fbRef.child('customers').set(backup.data.customers);
+    }
+    addHistory('RESTORE', `Restauration depuis ${backupId}`);
+    toast('Base restaurée !', 'ok');
   }
 }
 
-function initDemo() {
-  // ONLY TWO ACCOUNTS - No credentials displayed in UI
-  db.u = [
-    { id: 'admin1', name: 'Andry Ratolojahary', email: 'lectratana@gmail.com', pw: 'Aiza@dmin2024', role: 'admin', lastLogin: new Date().toISOString() },
-    { id: 'user1', name: 'Utilisateur Standard', email: 'user2026@gmail.com', pw: 'user2026', role: 'user', lastLogin: new Date().toISOString() }
-  ];
-  db.customers = ["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"];
-  db.i = [];
-  db.history = [];
-  db.backups = [];
-  saveDB();
+// ==================== AUTH ====================
+function swT(t) {
+  document.getElementById('tL').classList.toggle('on', t === 'l');
+  document.getElementById('tR').classList.toggle('on', t === 'r');
+  document.getElementById('fL').style.display = t === 'l' ? 'block' : 'none';
+  document.getElementById('fR').style.display = t === 'r' ? 'block' : 'none';
 }
 
-let currentUser = null;
-let currentEditId = null;
-let tempPhotos = [null,null,null,null,null];
+function loginSubmit(e) {
+  e.preventDefault();
+  const em = document.getElementById('le').value.trim();
+  const pw = document.getElementById('lp').value;
+  
+  const u = db.u.find(x => x.email === em && x.pw === pw);
+  if (!u) {
+    toast('Email ou mot de passe incorrect', 'no');
+    return false;
+  }
+  
+  currentUser = u;
+  // Update last login in Firebase
+  fbRef.child('users').child(u.id).update({ lastLogin: new Date().toISOString() });
+  localStorage.setItem('aiza_user', JSON.stringify({ id: u.id }));
+  addHistory('LOGIN', `${u.name} s'est connecté`);
+  toast('Connexion réussie', 'ok');
+  showApp();
+  return false;
+}
 
-// ==================== AUTH ====================
-function swT(t){ document.getElementById('tL').classList.toggle('on',t==='l'); document.getElementById('tR').classList.toggle('on',t==='r'); document.getElementById('fL').style.display=t==='l'?'block':'none'; document.getElementById('fR').style.display=t==='r'?'block':'none'; }
-function loginSubmit(e){ e.preventDefault(); const em=document.getElementById('le').value.trim(), pw=document.getElementById('lp').value; const u=db.u.find(x=>x.email===em && x.pw===pw); if(!u){ toast('Email ou mot de passe incorrect','no'); return false; } currentUser=u; u.lastLogin=new Date().toISOString(); saveDB(); localStorage.setItem('aiza_user',JSON.stringify({id:u.id})); addHistory('LOGIN', `${u.name} s'est connecté`); toast('Connexion réussie','ok'); showApp(); return false; }
-function regSubmit(e){ e.preventDefault(); toast('Inscription désactivée - Contactez l\'administrateur','no'); return false; }
-function logout(){ addHistory('LOGOUT', `${currentUser?.name} s'est déconnecté`); currentUser=null; localStorage.removeItem('aiza_user'); document.getElementById('hdr').classList.remove('v'); document.getElementById('bnav').classList.remove('v'); document.getElementById('pgL').classList.add('on'); document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on')); }
-function showApp(){ document.getElementById('pgL').classList.remove('on'); document.getElementById('hdr').classList.add('v'); document.getElementById('bnav').classList.add('v'); updateUI(); go('home'); if(currentUser?.role==='admin'){ document.getElementById('adminPanelLink').style.display='block'; } else { document.getElementById('adminPanelLink').style.display='none'; } }
-function updateUI(){ if(currentUser){ document.getElementById('hAv').textContent=currentUser.name.charAt(0).toUpperCase(); document.getElementById('prA').textContent=currentUser.name.charAt(0).toUpperCase(); document.getElementById('prN').textContent=currentUser.name; document.getElementById('prE').textContent=currentUser.email; document.getElementById('userBadge').innerHTML=currentUser.role==='admin'?'<span class="admin-badge">👑 ADMIN</span>':'<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:20px;font-size:11px">👤 USER</span>'; } }
-function go(page){ document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on')); document.getElementById(`pg${page.charAt(0).toUpperCase()+page.slice(1)}`).classList.add('on'); if(page==='home') renderHome(); if(page==='items') renderItems(); if(page==='search') doSearch(); if(page==='admin' && currentUser?.role==='admin') renderAdmin(); }
-function renderHome(){ const myItems=db.i.filter(it=>it.uid===currentUser.id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,5); document.getElementById('wN').innerHTML=`Bonjour ${currentUser.name.split(' ')[0]} 👋`; document.getElementById('recI').innerHTML=myItems.length===0?'<div class="emp">📭 Aucun objet</div>':myItems.map(it=>renderCard(it)).join(''); }
-function renderItems(){ const items=db.i.filter(it=>it.uid===currentUser.id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)); document.getElementById('iL').innerHTML=items.length===0?'<div class="emp">📭 Aucun objet</div>':items.map(it=>renderCard(it)).join(''); }
-function renderCard(it){ const photo=it.photos && it.photos[0] ? `<img src="${it.photos[0]}">` : '🧵'; return `<div class="ic" onclick="showDetail('${it.id}')"><div class="ic-t">${photo}</div><div class="ic-i"><h3>${escapeHtml(it.customer)} - ${escapeHtml(it.ocNumber)}</h3><div class="ic-l">🧵 ${escapeHtml(it.poFabric)} | 🏷️ ${escapeHtml(it.style||'-')}</div><div class="ic-d">📏 ${it.totalMeters||0}m | Reste: ${it.leftOver||0}m</div></div><div><button class="ic-b" onclick="event.stopPropagation();editItem('${it.id}')">✏️</button><button class="ic-b" onclick="event.stopPropagation();deleteItem('${it.id}')">🗑️</button></div></div>`; }
-function showDetail(id){ const it=db.i.find(x=>x.id===id); if(!it) return; document.getElementById('dTi').innerHTML=it.customer; let html=it.photos?.length?`<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:12px">${it.photos.map(p=>`<img src="${p}" style="width:100px;height:100px;object-fit:cover;border-radius:8px">`).join('')}</div>`:''; html+=`<div class="df"><strong>Client</strong> ${escapeHtml(it.customer)}</div><div class="df"><strong>Style</strong> ${escapeHtml(it.style)}</div><div class="df"><strong>Color</strong> ${escapeHtml(it.color)}</div><div class="df"><strong>PO Fabric</strong> ${escapeHtml(it.poFabric)}</div><div class="df"><strong>OC Number</strong> ${escapeHtml(it.ocNumber)}</div><div class="df"><strong>📏 Métrage total</strong> ${it.totalMeters||0} m</div><div class="df"><strong>📐 Av width</strong> ${it.avWidth||0} m</div><div class="df"><strong>📅 Date Received</strong> ${it.dateReceived || '-'}</div><div class="df"><strong>📉 Left over</strong> ${it.leftOver||0} m</div><div class="df"><strong>📝 Notes</strong> ${escapeHtml(it.notes)}</div><button class="btn btn-p btn-sm" style="margin-top:16px" onclick="closeM('mD');editItem('${it.id}')">✏️ Modifier</button>`; document.getElementById('dBd').innerHTML=html; openM('mD'); }
-function deleteItem(id){ if(confirm('Supprimer ?')){ db.i=db.i.filter(x=>x.id!==id); saveDB(); addHistory('DELETE_ITEM', `Objet supprimé: ${id}`); renderItems(); renderHome(); toast('Supprimé','ok'); } }
-function editItem(id){ const it=db.i.find(x=>x.id===id); if(!it) return; currentEditId=id; document.getElementById('styleField').value=it.style||''; document.getElementById('colorField').value=it.color||''; document.getElementById('poFabric').value=it.poFabric||''; document.getElementById('ocNumber').value=it.ocNumber||''; document.getElementById('totalMeters').value=it.totalMeters||''; document.getElementById('avWidth').value=it.avWidth||''; document.getElementById('dateReceived').value=it.dateReceived||''; document.getElementById('leftOver').value=it.leftOver||''; document.getElementById('notesField').value=it.notes||''; setCustomerSelect(it.customer); tempPhotos=[...it.photos||[], null,null,null,null,null].slice(0,5); renderPhotoGrid(); openM('mA'); }
-function saveItem(){ const customer=document.getElementById('customerSelect').value; const poFabric=document.getElementById('poFabric').value.trim(); const ocNumber=document.getElementById('ocNumber').value.trim(); if(!customer){ toast('Sélectionnez un client','no'); return; } if(!poFabric){ toast('PO Fabric requis','no'); return; } if(!ocNumber){ toast('OC Number requis','no'); return; } const item={ id:currentEditId||('i'+Date.now()), uid:currentUser.id, name:`${customer}-${ocNumber}`, customer, style:document.getElementById('styleField').value, color:document.getElementById('colorField').value, poFabric, ocNumber, totalMeters:parseFloat(document.getElementById('totalMeters').value)||0, avWidth:parseFloat(document.getElementById('avWidth').value)||0, dateReceived:document.getElementById('dateReceived').value, leftOver:parseFloat(document.getElementById('leftOver').value)||0, notes:document.getElementById('notesField').value, photos:tempPhotos.filter(p=>p!==null), createdAt:currentEditId?(db.i.find(x=>x.id===currentEditId)?.createdAt||new Date().toISOString()):new Date().toISOString() }; if(currentEditId){ const idx=db.i.findIndex(x=>x.id===currentEditId); if(idx!==-1) db.i[idx]=item; addHistory('EDIT_ITEM', `Modifié: ${item.customer} - ${item.ocNumber}`); } else { db.i.push(item); addHistory('ADD_ITEM', `Ajouté: ${item.customer} - ${item.ocNumber}`); } saveDB(); closeM('mA'); resetForm(); renderHome(); renderItems(); toast('Objet enregistré','ok'); currentEditId=null; }
-function resetForm(){ document.getElementById('styleField').value=''; document.getElementById('colorField').value=''; document.getElementById('poFabric').value=''; document.getElementById('ocNumber').value=''; document.getElementById('totalMeters').value=''; document.getElementById('avWidth').value=''; document.getElementById('dateReceived').value=''; document.getElementById('leftOver').value=''; document.getElementById('notesField').value=''; tempPhotos=[null,null,null,null,null]; renderPhotoGrid(); if(db.customers.length) setCustomerSelect(db.customers[0]); }
-function openAdd(){ currentEditId=null; resetForm(); openM('mA'); }
-function refreshCustomers(){ const sel=document.getElementById('customerSelect'); sel.innerHTML=''; db.customers.forEach(c=>{ const opt=document.createElement('option'); opt.value=c; opt.textContent=c; sel.appendChild(opt); }); }
-function setCustomerSelect(val){ const sel=document.getElementById('customerSelect'); for(let i=0;i<sel.options.length;i++) if(sel.options[i].value===val){ sel.selectedIndex=i; break; } }
-function openAddCustomer(){ openM('mCustomer'); document.getElementById('newCustomerName').value=''; }
-function addCustomer(){ const name=document.getElementById('newCustomerName').value.trim(); if(!name) return; if(!db.customers.includes(name)){ db.customers.push(name); saveDB(); addHistory('ADD_CUSTOMER', `Client ajouté: ${name}`); refreshCustomers(); setCustomerSelect(name); } closeM('mCustomer'); toast('Client ajouté','ok'); }
-function deleteCurrentCustomer(){ const val=document.getElementById('customerSelect').value; if(db.customers.length<=1){ toast('Gardez au moins un client','no'); return; } db.customers=db.customers.filter(c=>c!==val); saveDB(); addHistory('DELETE_CUSTOMER', `Client supprimé: ${val}`); refreshCustomers(); toast('Client supprimé','ok'); }
-function openCamera(){ const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.capture='environment'; input.onchange=e=>handlePhotos(e); input.click(); }
-function handlePhotos(e){ const files=e.target.files; if(!files) return; for(let i=0;i<files.length && i<5;i++){ const f=files[i]; if(f.size>5*1024*1024) continue; const reader=new FileReader(); reader.onload=ev=>{ const slot=tempPhotos.findIndex(p=>p===null); if(slot!==-1) tempPhotos[slot]=ev.target.result; renderPhotoGrid(); }; reader.readAsDataURL(f); } e.target.value=''; }
-function renderPhotoGrid(){ let html=''; for(let i=0;i<5;i++){ if(tempPhotos[i]) html+=`<div class="phs"><img src="${tempPhotos[i]}"><button class="pr" onclick="event.stopPropagation();removePhoto(${i})">✕</button></div>`; else html+=`<div class="phs" onclick="document.getElementById('pF').click()"><span>📷</span><span>Photo ${i+1}</span></div>`; } document.getElementById('pG').innerHTML=html; document.getElementById('pC').innerHTML=`${tempPhotos.filter(p=>p!==null).length}/5 photos`; }
-function removePhoto(idx){ tempPhotos[idx]=null; renderPhotoGrid(); }
-// SEARCH (PO Fabric, Style, OC Number)
-function doSearch(){ const kw=document.getElementById('sI').value.trim().toLowerCase(); let items=db.i.filter(it=>it.uid===currentUser.id); if(kw) items=items.filter(it=> (it.poFabric?.toLowerCase().includes(kw)) || (it.style?.toLowerCase().includes(kw)) || (it.ocNumber?.toLowerCase().includes(kw)) ); document.getElementById('sR').innerHTML=items.length===0?'<div class="emp">🔍 Aucun résultat</div>':items.map(it=>renderCard(it)).join(''); }
-// ADMIN (full access)
-function renderAdmin(){ if(!currentUser || currentUser.role!=='admin') return; document.getElementById('statUsers').textContent=db.u.length; document.getElementById('statItems').textContent=db.i.length; document.getElementById('adminUsers').innerHTML=db.u.map(u=>`<div class="uli"><div class="ulv" style="background:${u.role==='admin'?'gold':'var(--c1)'}">${u.name.charAt(0)}</div><div><strong>${escapeHtml(u.name)}</strong> ${u.role==='admin'?'👑':''}<br><small>${escapeHtml(u.email)} | Dernière connexion: ${u.lastLogin?new Date(u.lastLogin).toLocaleString():'-'}</small><br><small>📦 ${db.i.filter(it=>it.uid===u.id).length} objets</small></div></div>`).join(''); document.getElementById('adminAllItems').innerHTML=db.i.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(it=>`<div class="uli"><div class="ulv" style="background:var(--c2)">📦</div><div><strong>${escapeHtml(it.customer)} - ${escapeHtml(it.ocNumber)}</strong><br><small>${escapeHtml(it.poFabric)} | ${escapeHtml(it.style||'-')}<br>👤 ${db.u.find(u=>u.id===it.uid)?.name||'?'} | ${new Date(it.createdAt).toLocaleDateString()}</small></div></div>`).join('')||'<div class="emp">Aucun objet</div>'; document.getElementById('adminHistory').innerHTML=db.history.slice(0,50).map(h=>`<div class="history-item"><strong>${h.action}</strong><br><small>${escapeHtml(h.userName||'Système')} - ${new Date(h.timestamp).toLocaleString()}</small><br><span style="font-size:11px;color:var(--t2)">${escapeHtml(h.details)}</span></div>`).join('')||'<div class="emp">Aucun historique</div>'; document.getElementById('adminBackup').innerHTML=`<button class="backup-btn" onclick="backupDB()">💾 Créer une sauvegarde</button><div style="margin-top:12px">${db.backups.map(b=>`<div class="history-item" style="display:flex;justify-content:space-between;align-items:center"><span>📀 ${new Date(b.timestamp).toLocaleString()}</span><button class="btn-sm" style="background:var(--c1);color:#fff;padding:4px 8px" onclick="restoreBackup('${b.id}')">Restaurer</button></div>`).join('')||'<div class="emp">Aucune sauvegarde</div>'}</div>`; }
-function adminTab(tab,el){ document.querySelectorAll('.at').forEach(x=>x.classList.remove('on')); el.classList.add('on'); document.getElementById('adminUsers').style.display=tab==='users'?'block':'none'; document.getElementById('adminAllItems').style.display=tab==='allItems'?'block':'none'; document.getElementById('adminHistory').style.display=tab==='history'?'block':'none'; document.getElementById('adminBackup').style.display=tab==='backup'?'block':'none'; }
-function resetAllData(){ if(confirm('⚠️ Supprimer TOUTES les données ? Irréversible !')){ localStorage.removeItem('aiza_db'); location.reload(); } }
-function toast(msg,type){ const t=document.getElementById('toast'); t.textContent=msg; t.style.background=type==='ok'?'var(--ok)':type==='no'?'var(--no)':'var(--warn)'; t.style.display='block'; setTimeout(()=>t.style.display='none',2500); }
-function openM(id){ document.getElementById(id).classList.add('v'); document.body.style.overflow='hidden'; }
-function closeM(id){ document.getElementById(id).classList.remove('v'); document.body.style.overflow=''; }
-function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>]/g,function(m){if(m==='&')return '&amp;';if(m==='<')return '&lt;';if(m==='>')return '&gt;';return m;}); }
-// INIT
-document.addEventListener('DOMContentLoaded',()=>{ loadDB(); refreshCustomers(); const saved=localStorage.getItem('aiza_user'); if(saved){ const uid=JSON.parse(saved).id; const u=db.u.find(x=>x.id===uid); if(u){ currentUser=u; showApp(); } else document.getElementById('pgL').classList.add('on'); } else document.getElementById('pgL').classList.add('on'); setTimeout(()=>{ const sp=document.getElementById('splash'); sp.classList.add('off'); setTimeout(()=>sp.style.display='none',500); },1200); });
+function regSubmit(e) {
+  e.preventDefault();
+  toast('Inscription désactivée - Contactez l\'administrateur', 'no');
+  return false;
+}
+
+function logout() {
+  addHistory('LOGOUT', `${currentUser?.name} s'est déconnecté`);
+  currentUser = null;
+  localStorage.removeItem('aiza_user');
+  document.getElementById('hdr').classList.remove('v');
+  document.getElementById('bnav').classList.remove('v');
+  document.getElementById('pgL').classList.add('on');
+  document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+}
+
+function showApp() {
+  document.getElementById('pgL').classList.remove('on');
+  document.getElementById('hdr').classList.add('v');
+  document.getElementById('bnav').classList.add('v');
+  updateUI();
+  go('home');
+  if (currentUser?.role === 'admin') {
+    document.getElementById('adminPanelLink').style.display = 'block';
+  } else {
+    document.getElementById('adminPanelLink').style.display = 'none';
+  }
+}
+
+function updateUI() {
+  if (currentUser) {
+    document.getElementById('hAv').textContent = currentUser.name.charAt(0).toUpperCase();
+    document.getElementById('prA').textContent = currentUser.name.charAt(0).toUpperCase();
+    document.getElementById('prN').textContent = currentUser.name;
+    document.getElementById('prE').textContent = currentUser.email;
+    document.getElementById('userBadge').innerHTML = currentUser.role === 'admin' 
+      ? '<span class="admin-badge">👑 ADMIN</span>' 
+      : '<span style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:20px;font-size:11px">👤 USER</span>';
+  }
+}
+
+// ==================== NAVIGATION ====================
+function go(page) {
+  document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+  document.getElementById(`pg${page.charAt(0).toUpperCase() + page.slice(1)}`).classList.add('on');
+  if (page === 'home') renderHome();
+  if (page === 'items') renderItems();
+  if (page === 'search') doSearch();
+  if (page === 'admin' && currentUser?.role === 'admin') renderAdmin();
+}
+
+// ==================== RENDER ====================
+function renderHome() {
+  if (!currentUser) return;
+  const myItems = db.i.filter(it => it.uid === currentUser.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 5);
+  document.getElementById('wN').innerHTML = `Bonjour ${currentUser.name.split(' ')[0]} 👋`;
+  document.getElementById('recI').innerHTML = myItems.length === 0 
+    ? '<div class="emp">📭 Aucun objet</div>' 
+    : myItems.map(it => renderCard(it)).join('');
+}
+
+function renderItems() {
+  if (!currentUser) return;
+  const items = db.i.filter(it => it.uid === currentUser.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  document.getElementById('iL').innerHTML = items.length === 0 
+    ? '<div class="emp">📭 Aucun objet</div>' 
+    : items.map(it => renderCard(it)).join('');
+}
+
+function renderCard(it) {
+  const photo = it.photos && it.photos[0] ? `<img src="${it.photos[0]}">` : '🧵';
+  return `<div class="ic" onclick="showDetail('${it.id}')">
+    <div class="ic-t">${photo}</div>
+    <div class="ic-i">
+      <h3>${escapeHtml(it.customer)} - ${escapeHtml(it.ocNumber)}</h3>
+      <div class="ic-l">🧵 ${escapeHtml(it.poFabric)} | 🏷️ ${escapeHtml(it.style || '-')}</div>
+      <div class="ic-d">📏 ${it.totalMeters || 0}m | Reste: ${it.leftOver || 0}m</div>
+    </div>
+    <div>
+      <button class="ic-b" onclick="event.stopPropagation();editItem('${it.id}')">✏️</button>
+      <button class="ic-b" onclick="event.stopPropagation();deleteItem('${it.id}')">🗑️</button>
+    </div>
+  </div>`;
+}
+
+// ==================== DETAIL ====================
+function showDetail(id) {
+  const it = db.i.find(x => x.id === id);
+  if (!it) return;
+  document.getElementById('dTi').innerHTML = it.customer;
+  let html = it.photos?.length 
+    ? `<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:12px">${it.photos.map(p => `<img src="${p}" style="width:100px;height:100px;object-fit:cover;border-radius:8px">`).join('')}</div>` 
+    : '';
+  html += `
+    <div class="df"><strong>Client</strong> ${escapeHtml(it.customer)}</div>
+    <div class="df"><strong>Style</strong> ${escapeHtml(it.style || '-')}</div>
+    <div class="df"><strong>Color</strong> ${escapeHtml(it.color || '-')}</div>
+    <div class="df"><strong>PO Fabric</strong> ${escapeHtml(it.poFabric)}</div>
+    <div class="df"><strong>OC Number</strong> ${escapeHtml(it.ocNumber)}</div>
+    <div class="df"><strong>📏 Métrage total</strong> ${it.totalMeters || 0} m</div>
+    <div class="df"><strong>📐 Av width</strong> ${it.avWidth || 0} m</div>
+    <div class="df"><strong>📅 Date Received</strong> ${it.dateReceived || '-'}</div>
+    <div class="df"><strong>📉 Left over</strong> ${it.leftOver || 0} m</div>
+    <div class="df"><strong>📝 Notes</strong> ${escapeHtml(it.notes || '-')}</div>
+    <button class="btn btn-p btn-sm" style="margin-top:16px" onclick="closeM('mD');editItem('${it.id}')">✏️ Modifier</button>`;
+  document.getElementById('dBd').innerHTML = html;
+  openM('mD');
+}
+
+// ==================== CRUD ITEMS (FIREBASE) ====================
+function deleteItem(id) {
+  if (confirm('Supprimer ?')) {
+    fbRef.child('items').child(id).remove();
+    addHistory('DELETE_ITEM', `Objet supprimé: ${id}`);
+    toast('Supprimé', 'ok');
+  }
+}
+
+function editItem(id) {
+  const it = db.i.find(x => x.id === id);
+  if (!it) return;
+  currentEditId = id;
+  document.getElementById('styleField').value = it.style || '';
+  document.getElementById('colorField').value = it.color || '';
+  document.getElementById('poFabric').value = it.poFabric || '';
+  document.getElementById('ocNumber').value = it.ocNumber || '';
+  document.getElementById('totalMeters').value = it.totalMeters || '';
+  document.getElementById('avWidth').value = it.avWidth || '';
+  document.getElementById('dateReceived').value = it.dateReceived || '';
+  document.getElementById('leftOver').value = it.leftOver || '';
+  document.getElementById('notesField').value = it.notes || '';
+  setCustomerSelect(it.customer);
+  tempPhotos = [...(it.photos || []), null, null, null, null, null].slice(0, 5);
+  renderPhotoGrid();
+  openM('mA');
+}
+
+function saveItem() {
+  const customer = document.getElementById('customerSelect').value;
+  const poFabric = document.getElementById('poFabric').value.trim();
+  const ocNumber = document.getElementById('ocNumber').value.trim();
+  
+  if (!customer) { toast('Sélectionnez un client', 'no'); return; }
+  if (!poFabric) { toast('PO Fabric requis', 'no'); return; }
+  if (!ocNumber) { toast('OC Number requis', 'no'); return; }
+  
+  const item = {
+    uid: currentUser.id,
+    name: `${customer}-${ocNumber}`,
+    customer,
+    style: document.getElementById('styleField').value,
+    color: document.getElementById('colorField').value,
+    poFabric,
+    ocNumber,
+    totalMeters: parseFloat(document.getElementById('totalMeters').value) || 0,
+    avWidth: parseFloat(document.getElementById('avWidth').value) || 0,
+    dateReceived: document.getElementById('dateReceived').value,
+    leftOver: parseFloat(document.getElementById('leftOver').value) || 0,
+    notes: document.getElementById('notesField').value,
+    photos: tempPhotos.filter(p => p !== null),
+    createdAt: currentEditId 
+      ? (db.i.find(x => x.id === currentEditId)?.createdAt || new Date().toISOString()) 
+      : new Date().toISOString()
+  };
+  
+  if (currentEditId) {
+    // UPDATE existing item
+    fbRef.child('items').child(currentEditId).set(item);
+    addHistory('EDIT_ITEM', `Modifié: ${item.customer} - ${item.ocNumber}`);
+  } else {
+    // ADD new item with push()
+    fbRef.child('items').push(item);
+    addHistory('ADD_ITEM', `Ajouté: ${item.customer} - ${item.ocNumber}`);
+  }
+  
+  closeM('mA');
+  resetForm();
+  toast('Objet enregistré', 'ok');
+  currentEditId = null;
+}
+
+function resetForm() {
+  document.getElementById('styleField').value = '';
+  document.getElementById('colorField').value = '';
+  document.getElementById('poFabric').value = '';
+  document.getElementById('ocNumber').value = '';
+  document.getElementById('totalMeters').value = '';
+  document.getElementById('avWidth').value = '';
+  document.getElementById('dateReceived').value = '';
+  document.getElementById('leftOver').value = '';
+  document.getElementById('notesField').value = '';
+  tempPhotos = [null, null, null, null, null];
+  renderPhotoGrid();
+  if (db.customers.length) setCustomerSelect(db.customers[0]);
+}
+
+function openAdd() {
+  currentEditId = null;
+  resetForm();
+  openM('mA');
+}
+
+// ==================== CUSTOMERS ====================
+function refreshCustomers() {
+  const sel = document.getElementById('customerSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  (db.customers || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
+  });
+}
+
+function setCustomerSelect(val) {
+  const sel = document.getElementById('customerSelect');
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === val) {
+      sel.selectedIndex = i;
+      break;
+    }
+  }
+}
+
+function openAddCustomer() {
+  openM('mCustomer');
+  document.getElementById('newCustomerName').value = '';
+}
+
+function addCustomer() {
+  const name = document.getElementById('newCustomerName').value.trim();
+  if (!name) return;
+  if (!db.customers.includes(name)) {
+    db.customers.push(name);
+    fbRef.child('customers').set(db.customers);
+    addHistory('ADD_CUSTOMER', `Client ajouté: ${name}`);
+    refreshCustomers();
+    setCustomerSelect(name);
+  }
+  closeM('mCustomer');
+  toast('Client ajouté', 'ok');
+}
+
+function deleteCurrentCustomer() {
+  const val = document.getElementById('customerSelect').value;
+  if (db.customers.length <= 1) {
+    toast('Gardez au moins un client', 'no');
+    return;
+  }
+  db.customers = db.customers.filter(c => c !== val);
+  fbRef.child('customers').set(db.customers);
+  addHistory('DELETE_CUSTOMER', `Client supprimé: ${val}`);
+  refreshCustomers();
+  toast('Client supprimé', 'ok');
+}
+
+// ==================== PHOTOS ====================
+function openCamera() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+  input.onchange = e => handlePhotos(e);
+  input.click();
+}
+
+function handlePhotos(e) {
+  const files = e.target.files;
+  if (!files) return;
+  for (let i = 0; i < files.length && i < 5; i++) {
+    const f = files[i];
+    if (f.size > 5 * 1024 * 1024) continue;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const slot = tempPhotos.findIndex(p => p === null);
+      if (slot !== -1) tempPhotos[slot] = ev.target.result;
+      renderPhotoGrid();
+    };
+    reader.readAsDataURL(f);
+  }
+  e.target.value = '';
+}
+
+function renderPhotoGrid() {
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    if (tempPhotos[i]) {
+      html += `<div class="phs"><img src="${tempPhotos[i]}"><button class="pr" onclick="event.stopPropagation();removePhoto(${i})">✕</button></div>`;
+    } else {
+      html += `<div class="phs" onclick="document.getElementById('pF').click()"><span>📷</span><span>Photo ${i + 1}</span></div>`;
+    }
+  }
+  document.getElementById('pG').innerHTML = html;
+  document.getElementById('pC').innerHTML = `${tempPhotos.filter(p => p !== null).length}/5 photos`;
+}
+
+function removePhoto(idx) {
+  tempPhotos[idx] = null;
+  renderPhotoGrid();
+}
+
+// ==================== SEARCH (PO Fabric, Style, OC Number) ====================
+function doSearch() {
+  if (!currentUser) return;
+  const kw = document.getElementById('sI').value.trim().toLowerCase();
+  let items = db.i.filter(it => it.uid === currentUser.id);
+  if (kw) {
+    items = items.filter(it =>
+      (it.poFabric?.toLowerCase().includes(kw)) ||
+      (it.style?.toLowerCase().includes(kw)) ||
+      (it.ocNumber?.toLowerCase().includes(kw))
+    );
+  }
+  document.getElementById('sR').innerHTML = items.length === 0 
+    ? '<div class="emp">🔍 Aucun résultat</div>' 
+    : items.map(it => renderCard(it)).join('');
+}
+
+// ==================== ADMIN ====================
+function renderAdmin() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+  
+  document.getElementById('statUsers').textContent = db.u.length;
+  document.getElementById('statItems').textContent = db.i.length;
+  
+  document.getElementById('adminUsers').innerHTML = db.u.map(u => `
+    <div class="uli">
+      <div class="ulv" style="background:${u.role === 'admin' ? 'gold' : 'var(--c1)'}">${u.name.charAt(0)}</div>
+      <div>
+        <strong>${escapeHtml(u.name)}</strong> ${u.role === 'admin' ? '👑' : ''}
+        <br><small>${escapeHtml(u.email)} | Dernière connexion: ${u.lastLogin ? new Date(u.lastLogin).toLocaleString() : '-'}</small>
+        <br><small>📦 ${db.i.filter(it => it.uid === u.id).length} objets</small>
+      </div>
+    </div>`).join('');
+  
+  document.getElementById('adminAllItems').innerHTML = db.i
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .map(it => `
+      <div class="uli">
+        <div class="ulv" style="background:var(--c2)">📦</div>
+        <div>
+          <strong>${escapeHtml(it.customer)} - ${escapeHtml(it.ocNumber)}</strong>
+          <br><small>${escapeHtml(it.poFabric)} | ${escapeHtml(it.style || '-')}
+          <br>👤 ${db.u.find(u => u.id === it.uid)?.name || '?'} | ${new Date(it.createdAt).toLocaleDateString()}</small>
+        </div>
+      </div>`).join('') || '<div class="emp">Aucun objet</div>';
+  
+  document.getElementById('adminHistory').innerHTML = db.history.slice(0, 50).map(h => `
+    <div class="history-item">
+      <strong>${h.action}</strong>
+      <br><small>${escapeHtml(h.userName || 'Système')} - ${new Date(h.timestamp).toLocaleString()}</small>
+      <br><span style="font-size:11px;color:var(--t2)">${escapeHtml(h.details)}</span>
+    </div>`).join('') || '<div class="emp">Aucun historique</div>';
+  
+  document.getElementById('adminBackup').innerHTML = `
+    <button class="backup-btn" onclick="backupDB()">💾 Créer une sauvegarde</button>
+    <div style="margin-top:12px">
+      ${db.backups.map(b => `
+        <div class="history-item" style="display:flex;justify-content:space-between;align-items:center">
+          <span>📀 ${new Date(b.timestamp).toLocaleString()}</span>
+          <button class="btn-sm" style="background:var(--c1);color:#fff;padding:4px 8px" onclick="restoreBackup('${b.id}')">Restaurer</button>
+        </div>`).join('') || '<div class="emp">Aucune sauvegarde</div>'}
+    </div>`;
+}
+
+function adminTab(tab, btn) {
+  document.querySelectorAll('.atb .at').forEach(t => t.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('adminUsers').style.display = tab === 'users' ? 'block' : 'none';
+  document.getElementById('adminAllItems').style.display = tab === 'allItems' ? 'block' : 'none';
+  document.getElementById('adminHistory').style.display = tab === 'history' ? 'block' : 'none';
+  document.getElementById('adminBackup').style.display = tab === 'backup' ? 'block' : 'none';
+}
+
+function resetAllData() {
+  if (!confirm('⚠️ ATTENTION: Supprimer TOUTES les données ?')) return;
+  if (!confirm('Dernière chance ! Cette action est irréversible !')) return;
+  
+  fbRef.child('items').remove();
+  fbRef.child('history').remove();
+  fbRef.child('backups').remove();
+  fbRef.child('customers').set(["Cap Union", "Jcrew", "Everlane", "MacDonald", "Faherty"]);
+  
+  toast('Application réinitialisée', 'ok');
+  addHistory('RESET', 'Application réinitialisée');
+}
+
+// ==================== UTILITIES ====================
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = type === 'ok' ? 'var(--ok)' : type === 'no' ? 'var(--no)' : '#333';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2500);
+}
+
+function openM(id) {
+  document.getElementById(id).classList.add('v');
+}
+
+function closeM(id) {
+  document.getElementById(id).classList.remove('v');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ==================== INITIALIZATION ====================
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize Firebase listeners
+  initFirebaseListeners();
+  
+  // Initialize demo data if needed
+  initDemoData();
+  
+  // Hide splash after delay
+  setTimeout(() => {
+    document.getElementById('splash').classList.add('off');
+    
+    // Check for saved session
+    const saved = localStorage.getItem('aiza_user');
+    if (saved) {
+      const userData = JSON.parse(saved);
+      // Wait for Firebase to load users
+      setTimeout(() => {
+        const u = db.u.find(x => x.id === userData.id);
+        if (u) {
+          currentUser = u;
+          showApp();
+        } else {
+          document.getElementById('pgL').classList.add('on');
+        }
+      }, 1500);
+    } else {
+      document.getElementById('pgL').classList.add('on');
+    }
+  }, 1800);
+  
+  // Initial render
+  renderPhotoGrid();
+});
 </script>
 </body>
 </html>
